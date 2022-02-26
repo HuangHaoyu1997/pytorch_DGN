@@ -76,8 +76,8 @@ def main():
     #############################################
     env = Surviving(n_agent = num_agent)
     n_ant = env.n_agent
-    state_dim = n_ant*env.len_obs
-    action_dim = n_ant*env.n_action
+    state_dim = env.len_obs
+    action_dim = env.n_action
 
     if random_seed:
         torch.manual_seed(random_seed)

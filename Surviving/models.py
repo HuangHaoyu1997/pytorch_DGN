@@ -16,7 +16,7 @@ device = torch.device('cuda:'+cuda_device if USE_CUDA else 'cpu')
 Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if USE_CUDA else autograd.Variable(*args, **kwargs)
 
 class AttModel(nn.Module):
-	def __init__(self, n_node, din, hidden_dim, dout):
+	def __init__(self, din, hidden_dim, dout):
 		super(AttModel, self).__init__()
 		self.fcv = nn.Linear(din, hidden_dim)
 		self.fck = nn.Linear(din, hidden_dim)
@@ -25,6 +25,11 @@ class AttModel(nn.Module):
 
 	def forward(self, x, mask):
 		# mask是adjacent matrix
+		# x.shape: (1,100,128)
+		# v,q,k.shape: (1,100,128)
+		# att.shape: (1,100,100)
+		# out.shape: (1,100,128)
+
 		v = F.relu(self.fcv(x))
 		q = F.relu(self.fcq(x))
 		k = F.relu(self.fck(x)).permute(0,2,1)
@@ -40,19 +45,21 @@ class DGN(nn.Module):
 		super(DGN, self).__init__()
 		
 		self.encoder = nn.Linear(num_inputs, hidden_dim)
-		self.att_1 = AttModel(n_agent, hidden_dim, hidden_dim, hidden_dim)
-		self.att_2 = AttModel(n_agent, hidden_dim, hidden_dim, hidden_dim)
+		self.att_1 = AttModel(hidden_dim, hidden_dim, hidden_dim)
+		self.att_2 = AttModel(hidden_dim, hidden_dim, hidden_dim)
 		self.q_net = nn.Linear(hidden_dim, num_actions)
 		
 	def forward(self, x, mask):
+		# q.shape: (1,100,5)
 		h1 = F.relu(self.encoder(x))
 		h2 = self.att_1(h1, mask)
 		h3 = self.att_2(h2, mask)
 		q = self.q_net(h3)
+		print(q.shape)
 		return q 
 
 class ActorCritic(nn.Module):
-	def __init__(self, state_dim=100*29, action_dim=100*5, hidden_dim=64):
+	def __init__(self, state_dim=29, action_dim=5, hidden_dim=128):
 		super(ActorCritic, self).__init__()
 		self.fc1 = nn.Linear(state_dim, hidden_dim)
 		self.fc2 = nn.Linear(hidden_dim, hidden_dim)
@@ -65,20 +72,22 @@ class ActorCritic(nn.Module):
 
 	# actor
 	def action_layer(self, x):
-		x = x.view(-1,100*29)
+		# input x.shape: (1,100,29)
+		# output x.shape: (1,100,5)
+		x = x.view(-1,100,29)
 		x = torch.tanh(self.fc1(x))
 		x = torch.tanh(self.fc2(x))
 		x = torch.tanh(self.fc3(x))
-		x = x.view(-1,100,5)
 		x = self.softmax(x)
 		return x
         
     # critic
 	def value_layer(self, x):
-		x = x.view(-1,100*29)
+		x = x.view(-1,100,29)
 		x = torch.tanh(self.fc4(x))
 		x = torch.tanh(self.fc5(x))
 		x = self.fc6(x)
+		print(x.shape)
 		return x
         
 	def forward(self):
