@@ -1,0 +1,147 @@
+import math, random, copy, time
+import numpy as np
+import os,sys
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.autograd as autograd 
+import torch.nn.functional as F
+
+from models import DGN, ATT
+from buffer import ReplayBuffer
+from surviving import Surviving
+from config import *
+
+os.environ['CUDA_VISIBLE_DEVICES'] = cuda_device
+USE_CUDA = torch.cuda.is_available()
+device = torch.device('cuda:'+cuda_device if USE_CUDA else 'cpu')
+current_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
+
+# 创建环境
+env = Surviving(n_agent = num_agent)
+n_ant = env.n_agent
+observation_space = env.len_obs
+n_actions = env.n_action
+print('=====================================')
+print('number of agents:', n_ant)
+print('observation space:', observation_space)
+print('action space:', n_actions)
+print('cuda:',device)
+print('=====================================')
+
+buff = ReplayBuffer(capacity,observation_space,n_actions,n_ant)
+model = DGN(n_ant,observation_space,hidden_dim,n_actions)
+model_tar = DGN(n_ant,observation_space,hidden_dim,n_actions)
+model = model.to(device)
+model_tar = model_tar.to(device)
+optimizer = optim.Adam(model.parameters(), lr = 0.0001)
+
+att = ATT(observation_space).to(device)
+att_tar = ATT(observation_space).to(device)
+att_tar.load_state_dict(att.state_dict())
+optimizer_att = optim.Adam(att.parameters(), lr = 0.0001)
+criterion = nn.BCELoss()
+
+M_Null = torch.Tensor(np.array([np.eye(n_ant)]*batch_size)).to(device)
+M_ZERO = torch.Tensor(np.zeros((batch_size,n_ant,n_ant))).to(device)
+
+log_file = '/home/hhy/pytorch_DGN/Surviving/DGN+ATOC/log/'+str(threshold)+'_'+current_time+'.txt'
+
+while i_episode < n_episode:
+
+	if i_episode > start_train:
+		epsilon -= 0.001
+		if epsilon < 0.01:
+			epsilon = 0.01
+	
+	i_episode += 1
+	steps = 0
+	obs, adj = env.reset()
+	while steps < max_step:
+		steps += 1 
+		action = []
+		cost_all += adj.sum()
+		v_a = np.array(att(torch.Tensor(np.array([obs])).to(device))[0].cpu().data) # shape=(n_ant,1)
+		
+		for i in range(n_ant):
+			if np.random.rand() < epsilon:
+				adj[i] = adj[i]*0 if np.random.rand() < 0.5 else adj[i]*1
+			else:
+				adj[i] = adj[i]*0 if v_a[i][0] < threshold else adj[i]*1 # v_a[i]是agent_i的通讯概率
+		
+		n_adj = adj*comm_flag
+		cost_comm += n_adj.sum()
+		n_adj = n_adj + np.eye(n_ant) # 智能体至少和自己相连
+		q = model(
+					torch.Tensor(np.array([obs])).to(device), 
+					torch.Tensor(np.array([n_adj])).to(device)
+					)[0]
+		for i in range(n_ant):
+			if np.random.rand() < epsilon:
+				a = np.random.randint(n_actions)
+			else:
+				a = q[i].argmax().item()
+			action.append(a)
+
+		next_obs, next_adj, reward, terminated = env.step(action)
+
+		buff.add(np.array(obs),action,reward,np.array(next_obs),n_adj,next_adj,terminated)
+		obs = next_obs
+		adj = next_adj
+		score += sum(reward)
+
+	if i_episode % log_interval==0:
+		with open(log_file,"a") as f:
+			f.write(str(score/(log_interval*n_ant))+'	'+str(cost_comm/cost_all)+'\n')
+
+		score = 0
+		cost_comm = 0
+		cost_all = 0
+
+	if i_episode < start_train:
+		continue
+
+	for e in range(n_epoch):
+		
+		O,A,R,Next_O,Matrix,Next_Matrix,D = buff.getBatch(batch_size)
+		O = torch.Tensor(O).to(device)
+		Matrix = torch.Tensor(Matrix).to(device)
+		Next_O = torch.Tensor(Next_O).to(device)
+		Next_Matrix = torch.Tensor(Next_Matrix).to(device)
+
+		label = model(Next_O, Next_Matrix+M_Null).max(dim = 2)[0] - model(Next_O, M_Null).max(dim = 2)[0]
+		label = (label - label.mean())/(label.std()+0.000001) + 0.5
+		label = torch.clamp(label, 0, 1).unsqueeze(-1).detach()
+		loss = criterion(att(Next_O), label)
+		optimizer_att.zero_grad()
+		loss.backward()
+		optimizer_att.step()
+
+		V_A_D = att_tar(Next_O).expand(-1,-1,n_ant)
+		Next_Matrix = torch.where(V_A_D > threshold, Next_Matrix, M_ZERO)
+		Next_Matrix = Next_Matrix*comm_flag + M_Null
+
+		q_values = model(O, Matrix)
+		target_q_values = model_tar(Next_O, Next_Matrix).max(dim = 2)[0]
+		target_q_values = np.array(target_q_values.cpu().data)
+		expected_q = np.array(q_values.cpu().data)
+		
+		for j in range(batch_size):
+			for i in range(n_ant):
+				expected_q[j][i][A[j][i]] = R[j][i] + (1-D[j])*GAMMA*target_q_values[j][i]
+		
+		loss = (q_values - torch.Tensor(expected_q).to(device)).pow(2).mean()
+		optimizer.zero_grad()
+		loss.backward()
+		optimizer.step()
+
+		# 模型参数软更新
+		with torch.no_grad():
+			for p, p_targ in zip(model.parameters(), model_tar.parameters()):
+				p_targ.data.mul_(tau)
+				p_targ.data.add_((1 - tau) * p.data)
+			for p, p_targ in zip(att.parameters(), att_tar.parameters()):
+				p_targ.data.mul_(tau)
+				p_targ.data.add_((1 - tau) * p.data)
+		
