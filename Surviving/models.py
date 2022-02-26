@@ -15,15 +15,6 @@ device = torch.device('cuda:'+cuda_device if USE_CUDA else 'cpu')
 
 Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if USE_CUDA else autograd.Variable(*args, **kwargs)
 
-class Encoder(nn.Module):
-	def __init__(self, din=32, hidden_dim=128):
-		super(Encoder, self).__init__()
-		self.fc = nn.Linear(din, hidden_dim)
-
-	def forward(self, x):
-		embedding = F.relu(self.fc(x))
-		return embedding
-
 class AttModel(nn.Module):
 	def __init__(self, n_node, din, hidden_dim, dout):
 		super(AttModel, self).__init__()
@@ -44,26 +35,17 @@ class AttModel(nn.Module):
 		out = F.relu(self.fcout(out))
 		return out
 
-class Q_Net(nn.Module):
-	def __init__(self, hidden_dim, dout):
-		super(Q_Net, self).__init__()
-		self.fc = nn.Linear(hidden_dim, dout)
-
-	def forward(self, x):
-		q = self.fc(x)
-		return q
-
 class DGN(nn.Module):
 	def __init__(self, n_agent, num_inputs, hidden_dim, num_actions):
 		super(DGN, self).__init__()
 		
-		self.encoder = Encoder(num_inputs, hidden_dim)
+		self.encoder = nn.Linear(num_inputs, hidden_dim)
 		self.att_1 = AttModel(n_agent, hidden_dim, hidden_dim, hidden_dim)
 		self.att_2 = AttModel(n_agent, hidden_dim, hidden_dim, hidden_dim)
-		self.q_net = Q_Net(hidden_dim, num_actions)
+		self.q_net = nn.Linear(hidden_dim, num_actions)
 		
 	def forward(self, x, mask):
-		h1 = self.encoder(x)
+		h1 = F.relu(self.encoder(x))
 		h2 = self.att_1(h1, mask)
 		h3 = self.att_2(h2, mask)
 		q = self.q_net(h3)

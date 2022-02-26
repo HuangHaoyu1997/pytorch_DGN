@@ -22,7 +22,7 @@ render = False
 solved_reward = -40         # stop training if avg_reward > solved_reward
 log_interval = 2           # print avg reward in the interval
 
-update_timestep = 1000 # 2000      # update policy every n timesteps
+update_timestep = 2000 # 2000      # update policy every n timesteps
 lr = 0.0001
 betas = (0.9, 0.999)
 eps_clip = 0.2              # clip parameter for PPO

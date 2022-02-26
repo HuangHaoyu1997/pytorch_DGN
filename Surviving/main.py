@@ -35,7 +35,10 @@ if random_seed:
 
 
 buff = ReplayBuffer(capacity)
-model = DGN(n_ant,observation_space,hidden_dim,n_actions)
+model = DGN(n_agent=n_ant,
+			num_inputs=observation_space,
+			hidden_dim=hidden_dim,
+			num_actions=n_actions)
 model_tar = DGN(n_ant,observation_space,hidden_dim,n_actions)
 model = model.to(device)
 model_tar = model_tar.to(device)
