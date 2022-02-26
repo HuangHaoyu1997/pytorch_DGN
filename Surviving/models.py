@@ -109,18 +109,25 @@ class ActorCritic(nn.Module):
 		action = dist.sample()
 		
 		memory.states.append(state)
-		memory.actions.append(action)
-		memory.logprobs.append(dist.log_prob(action))
+		memory.actions.append(action[0])
+		# print('log prob,',dist.log_prob(action)[0].sum())
+		memory.logprobs.append(dist.log_prob(action)[0].sum())
 		
 		return action[0].cpu().numpy()# .item()
 
 	def evaluate(self, state, action):
+		# action.shape:          (1000, 100), 1000是buffer length
+		# action_probs.shape:    (1000, 100, 5)
+		# action_logprobs.shape: (1000, 100)
+		# dist_entropy.shape:    (1000)
+		# state_value.shape:     (1000, 1)
+		# torch.squeeze(state_value).shape: (1000)
 		action_probs = self.action_layer(state)
 		dist = Categorical(action_probs)
 		
 		action_logprobs = dist.log_prob(action)
-		dist_entropy = dist.entropy()
 		
+		dist_entropy = dist.entropy()
 		state_value = self.value_layer(state)
 		
-		return action_logprobs, torch.squeeze(state_value), dist_entropy
+		return action_logprobs.sum(-1), torch.squeeze(state_value), dist_entropy.sum(-1)

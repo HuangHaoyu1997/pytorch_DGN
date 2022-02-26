@@ -20,7 +20,7 @@ random_seed = 123
 ### PPO config
 render = False
 solved_reward = -40         # stop training if avg_reward > solved_reward
-log_interval = 20           # print avg reward in the interval
+log_interval = 2           # print avg reward in the interval
 
 update_timestep = 1000 # 2000      # update policy every n timesteps
 lr = 0.0001
