@@ -57,6 +57,7 @@ class PPO:
             # Finding the ratio (pi_theta / pi_theta__old):
             ratios = torch.exp(logprobs - old_logprobs.detach())
             # Finding Surrogate Loss:
+            print(state_values.shape)
             advantages = rewards - state_values.detach()
             # print(ratios.shape,advantages.shape)
             surr1 = ratios * advantages
